@@ -1,0 +1,134 @@
+train_x=pd.read_csv('data/train_weather_utf8.csv')
+train_y=pd.read_csv('data/train_rice_utf8.csv')
+month_index=train_x['月份'].apply(lambda x: x in np.arange(3,8))
+train_x=train_x[month_index]
+predict_x=pd.read_csv('data/testA.csv', header=None)   # 获取要预测的县
+predict_id=train_x['区县id'].apply(lambda x: x in predict_x.values)
+train_x=train_x[predict_id]
+predict_id=train_x['站名id'].apply(lambda x: x is 1)
+train_x=train_x[predict_id]
+train_x.replace('/',np.nan,inplace=True)
+train_x.replace('*',np.nan,True)
+train_x['日照时数（单位：h)'].fillna(0,inplace=True)
+train_x['日照时数（单位：h)']=train_x['日照时数（单位：h)'].apply(pd.to_numeric)
+nan_index=np.where(train_x['日平均风速(单位：m/s)'].isnull())[0]
+for j in nan_index:
+    mean=np.mean(train_x['日平均风速(单位：m/s)'].iloc[j-10:j].values)
+    train_x['日平均风速(单位：m/s)'].iloc[j]=mean
+train_x['日平均风速(单位：m/s)']=train_x['日平均风速(单位：m/s)'].apply(pd.to_numeric)
+train_x['日降水量（mm）'].fillna(0,inplace=True)
+train_x['日降水量（mm）']=train_x['日平均风速(单位：m/s)'].apply(pd.to_numeric)
+nan_index=np.where(train_x['日平均温度（单位：℃）'].isnull())[0]
+train_x['日平均温度（单位：℃）']=train_x['日平均温度（单位：℃）'].apply(pd.to_numeric)
+for j in nan_index:
+    mean=np.mean(train_x['日平均温度（单位：℃）'].iloc[j-10:j].values)
+    train_x['日平均温度（单位：℃）'].iloc[j]=mean
+nan_index=np.where(train_x['日相对湿度（单位：%）'].isnull())[0]
+train_x['日相对湿度（单位：%）']=train_x['日相对湿度（单位：%）'].apply(pd.to_numeric)
+for j in nan_index:
+    mean=np.mean(train_x['日相对湿度（单位：%）'].iloc[j-10:j].values)
+    train_x['日相对湿度（单位：%）'].iloc[j]=mean
+nan_index=np.where(train_x['日平均气压（单位：hPa）'].isnull())[0]
+train_x['日平均气压（单位：hPa）']=train_x['日平均气压（单位：hPa）'].apply(pd.to_numeric)
+for j in nan_index:
+    mean=np.mean(train_x['日平均气压（单位：hPa）'].iloc[j-10:j].values)
+    train_x['日平均气压（单位：hPa）'].iloc[j]=mean
+direction_columns=[]
+
+for i in ['02','08','14','20']:
+    for j in 'ESWN':
+        direction_columns.append(i+j)
+
+train_x_direction=pd.DataFrame(columns=direction_columns,index=train_x.index)
+for i in tqdm_notebook(train_x.index):
+    train_x_direction_list=[]
+    for j in ['02时风向','08时风向','14时风向','20时风向']:
+        for z in 'ESWN':
+            if pd.isna(train_x[j].loc[i]):
+                train_x_direction_list.append(np.nan)
+                continue
+            if z in train_x[j].loc[i]:
+                train_x_direction_list.append(1)
+            else:
+                train_x_direction_list.append(0)
+    train_x_direction.loc[i,:]=train_x_direction_list
+
+index=np.where(train_x_direction.isnull())[0]
+train_x_direction['02E'].iloc[index[1]]=train_x_direction['02E'].value_counts().index[0]
+train_x_direction['02S'].iloc[index[2]]=train_x_direction['02S'].value_counts().index[0]
+train_x_direction['02W'].iloc[index[3]]=train_x_direction['02W'].value_counts().index[0]
+train_x_direction['02N'].iloc[index[1]]=train_x_direction['02N'].value_counts().index[0]
+
+county=train_x['区县id'].unique()
+# 分离id
+def county_split(string):
+    string_=string.replace('county','')
+    value=int(string_)
+    return value
+
+split=np.vectorize(county_split)
+id_=split(county)
+id_=np.sort(id_,)
+
+train_x.drop(columns=['02时风向','08时风向','14时风向','20时风向'],inplace=True)
+
+train_x=pd.concat([train_x,train_x_direction],axis=1)
+
+countyid=train_x['区县id']
+yearid=train_x['年份']
+
+
+train_x.drop(columns=['区县id','站名id','年份','月份','日期'],inplace=True)
+
+train_x_array=np.array([],dtype=np.float)
+
+train_x=train_x.apply(pd.to_numeric, errors='ignore')
+
+year=[2015,2016,2017]
+for i in tqdm_notebook(id_):
+    county='county'+str(i)
+    for j in year:
+        index=np.intersect1d(np.where(countyid==county)[0],np.where(yearid==j)[0])
+        if len(train_x_array)!=0:
+            train_x_array=np.vstack((train_x_array,np.ravel(train_x.iloc[index])))
+        else:
+            train_x_array=np.ravel(train_x.iloc[index])
+
+train_y_array=train_y.drop(columns=['区县id','2015年晚稻','2016年晚稻','2017年晚稻'])
+train_y_array=np.ravel(train_y_array)
+
+predict_x_array=np.array([])
+year=[2018]
+for i in tqdm_notebook(id_):
+    county='county'+str(i)
+    for j in year:
+        index=np.intersect1d(np.where(countyid==county)[0],np.where(yearid==j)[0])
+        if len(predict_x_array)!=0:
+            predict_x_array=np.vstack((predict_x_array,np.ravel(train_x.iloc[index])))
+        else:
+            predict_x_array=np.ravel(train_x.iloc[index])
+
+
+def slide(n):
+    train_x_array=np.array([],dtype=np.float)
+    train_x_slide_array=np.array([],dtype=np.float)
+    year=[2015,2016,2017]
+    for i in tqdm_notebook(id_):
+        county='county'+str(i)
+        for j in year:
+            index=np.intersect1d(np.where(countyid==county)[0],np.where(yearid==j)[0])
+            train_x_index=train_x.iloc[index]
+            for m in range(153-n+1):
+                train_x_slide=np.mean(train_x_index.iloc[m:m+n-1].values,axis=0)
+                if len(train_x_slide_array)!=0:
+                    train_x_slide_array=np.vstack((train_x_slide_array,train_x_slide))
+                else:
+                    train_x_slide_array=np.ravel(train_x_slide)
+            if len(train_x_array)!=0:
+                train_x_array=np.vstack((train_x_array,np.ravel(train_x_slide_array)))
+            else:
+                train_x_array=np.ravel(train_x_slide_array)
+            train_x_slide_array=np.array([],dtype=np.float)
+    return train_x_array
+    
+train_x_array=slide(130)
